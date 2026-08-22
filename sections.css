@@ -1,0 +1,8 @@
+.module{padding:22px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 5px 18px #17352a0d}
+.module+.module{margin-top:56px}
+.rainfall-module{border-top:5px solid #328fbd}
+.weather-module{border-top:5px solid var(--brand)}
+.module-label{display:inline-block;margin:0 0 14px;padding:5px 9px;border-radius:999px;background:#e9f3f6;color:#236b8d;font-size:11px;font-weight:800;letter-spacing:.04em}
+.weather-module .module-label{background:#e5f3ef;color:var(--brand-dark)}
+.metric-chart+.metric-chart{margin-top:0}
+@media(max-width:760px){.module{padding:15px 10px}.module+.module{margin-top:38px}}
