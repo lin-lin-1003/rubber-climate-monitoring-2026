@@ -8,3 +8,35 @@
 .image-action{flex:0 0 auto;color:var(--brand-dark);font-size:12px;font-weight:700;text-decoration:none}
 .image-action:hover{text-decoration:underline}
 @media(max-width:760px){.image-body{padding:11px 12px}.annual-image-link{overflow-x:auto}}
+
+.metric-checks{display:flex;flex-wrap:wrap;gap:10px 18px;padding:14px;background:white;border:1px solid var(--line);border-radius:10px}
+.metric-checks label,.anomaly-controls label{font-size:13px;display:flex;gap:6px;align-items:center;cursor:pointer}
+input[type=checkbox]{accent-color:var(--brand);width:16px;height:16px}
+.anomaly-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:10px 0;padding:12px;background:#eaf3f0;border-radius:9px}
+.anomaly-controls strong{font-size:14px}.anomaly-controls select,.anomaly-controls button{font:inherit;border:1px solid #aac2bc;background:white;border-radius:6px;padding:6px 9px;color:var(--ink)}
+.anomaly-controls>span{margin-left:auto;font-size:12px;color:var(--muted)}
+.region-picker{position:relative;font-size:13px}.region-picker summary{cursor:pointer;padding:7px;background:white;border-radius:5px}
+.region-options{position:absolute;z-index:25;top:38px;left:0;width:min(390px,80vw);max-height:320px;overflow:auto;background:white;padding:10px;border:1px solid var(--line);box-shadow:0 8px 28px #17303630;border-radius:8px}
+.region-options label{padding:8px 5px}.region-options small{display:block;font-size:11px;color:var(--muted)}
+.annual-legend{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;margin:16px 2px}
+.annual-legend span:before{content:"";display:inline-block;width:22px;margin-right:5px;vertical-align:middle;border-top:3px solid}
+.annual-legend .legend-band:before{border-top:12px solid #d9eaf4}.legend-median{color:#7895a4}.legend-actual{color:#246bc0}.legend-forecast{color:#cd5145}
+.annual-legend .legend-forecast:before{border-top-style:dashed}.annual-legend small{color:var(--muted)}
+.annual-station{scroll-margin:100px}.annual-station.chosen{border:2px solid #07947f}
+.annual-station>summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:14px;list-style:none;padding:17px 18px;background:white;border-bottom:1px solid var(--line)}
+.annual-station>summary:before{content:"▾";color:var(--brand)}.annual-station:not([open])>summary:before{content:"▸"}
+.annual-station>summary>span:first-of-type{flex:1}.annual-station strong{font-size:17px}.province{font-size:13px;color:var(--muted)}.annual-station small{display:block;font-size:12px;color:var(--muted);margin-top:6px}
+.anomaly-badge{font-size:12px;padding:6px 9px;background:#eef3f2;border-radius:5px}.anomaly-badge.high{background:#fff0e9;color:#a4392d}.anomaly-badge.low{background:#e8f3fb;color:#236e9d}
+.strip-actions{display:flex;align-items:center;gap:8px;padding:8px 16px;color:var(--muted);font-size:12px}.strip-actions span{flex:1}
+.strip-actions button{border:1px solid #b9cec8;background:#fff;border-radius:6px;padding:4px 18px;font-size:20px;color:var(--brand);cursor:pointer}
+.chart-strip{position:relative;display:flex;gap:12px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;padding:0 14px 12px;scrollbar-color:#85afa4 #edf3f1}
+.annual-metric{flex:0 0 610px;min-width:0;margin:0;border:1px solid #dce6e3;border-radius:8px;background:#fcfefd;scroll-snap-align:start;overflow:hidden}
+.annual-metric figcaption{display:flex;justify-content:space-between;padding:12px 14px 0;font-size:14px;font-weight:700}
+.annual-metric figcaption span{font-size:12px;font-weight:400;color:var(--muted)}
+.annual-metric svg{display:block;width:100%;height:auto;touch-action:pan-x pan-y}
+.plot-area{min-height:230px}.chart-placeholder{padding:85px 20px;text-align:center;color:var(--muted);font-size:13px}
+.chart-readout{height:48px;padding:7px 12px;font-size:11px;line-height:1.5;background:#f0f6f4;color:#4b6962}
+.trigger-note{padding:0 16px;font-size:12px;line-height:1.6;color:#506b63}
+.method-note{margin:18px 0;padding:14px;background:white;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.8}
+.method-note summary{cursor:pointer;font-weight:700}.method-note pre{white-space:pre-wrap;font:inherit}
+@media(max-width:760px){.annual-metric{flex-basis:calc(100vw - 66px)}.annual-station>summary{padding:12px;flex-wrap:wrap}.annual-station strong{font-size:15px}.anomaly-badge{margin-left:18px}.annual-station small{font-size:11px;line-height:1.6}.plot-area{min-height:125px}.chart-placeholder{padding:42px 10px}.chart-readout{height:64px}.anomaly-controls{gap:8px}.metric-checks{gap:8px 12px}}
