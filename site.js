@@ -1,6 +1,6 @@
 "use strict";
 
-const state = {data: null, sort: "region", metrics: new Set(), regionType: "all", selected: new Set(), onlySelected: false, annual: new Map(), comparisonYears: new Set(), scrollLeft: 0, closed: new Set(), dateIndex: null, dragging: false};
+const state = {data: null, sort: "region", metrics: new Set(), regionType: "all", selected: new Set(), onlySelected: false, annual: new Map(), comparisonYears: new Set(), scrollLeft: 0, closed: new Set(), dateIndex: null, dragging: false, productionFilter: "all"};
 const byId = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
 const finite = value => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
@@ -118,10 +118,21 @@ function typeMatches(region) {
   return region.directions.includes(state.regionType);
 }
 function filteredStations() {
+  const leaders = new Set(productionLeaders().map(r => r.region_key));
   return orderedStations().filter(s => {
     const r = regionFor(s);
-    return r && typeMatches(r) && (!state.onlySelected || state.selected.has(s.region_key));
+    return r && (state.productionFilter === "all" || leaders.has(s.region_key)) && typeMatches(r) && (!state.onlySelected || state.selected.has(s.region_key));
   });
+}
+function productionLeaders() {
+  return (state.data.high_production || []).filter(r => state.productionFilter === "th" ? r.country === "泰国" : state.productionFilter === "id" ? r.country === "印度尼西亚" : true);
+}
+function scoreSummary(region) {
+  if (!region) return "";
+  const render = (score, label) => '<span><strong>' + label + ' ' + fmt(score?.climate_score) + '</strong> · 深层缺水 ' + fmt(score?.modules?.moisture) + ' · 降雨 ' + fmt(score?.modules?.rain) + ' · 温度 ' + fmt(score?.modules?.temperature) + (score?.ready ? '' : ' · 核心数据待补') + '</span>';
+  const periods = region.period_scores || {};
+  const details = (region.signals || []).filter(s => s.core).map(s => '<tr><td>' + esc((s.period === 'actual' ? '实况' : '预测') + ' · ' + s.label) + '<small>' + esc(s.station_name + ' / ' + (s.data_basis || '') + ' / ' + s.start + '—' + s.end) + '</small></td><td>' + fmt(s.value,s.unit==='m³/m³'?3:1) + ' ' + esc(s.unit) + '</td><td>' + fmt(s.mean,3) + ' / ' + fmt(s.std,3) + '</td><td>' + fmt(s.z,2) + '</td><td>' + fmt(s.climate_score,2) + '</td><td>' + fmt(s.minimum,3) + '—' + fmt(s.maximum,3) + '<small>' + esc(s.status) + '</small></td></tr>').join('');
+  return '<div class="score-summary">' + render(periods.actual,'实况综合') + render(periods.forecast,'预测综合') + '<small>深层缺水50%＋降雨30%＋温度20%；缺项不合成，不是减产率。实况深层贡献 ' + fmt(periods.actual?.contributions?.moisture) + ' 分。</small></div><details class="score-details"><summary>查看连续分项、标准差与历史范围</summary><div class="table-wrap"><table><thead><tr><th>指标 / 时段</th><th>当前值</th><th>历史均值 / 标准差</th><th>z</th><th>连续分</th><th>历史范围 / 状态</th></tr></thead><tbody>' + details + '</tbody></table></div></details>';
 }
 // Year identity is stable across selections, stations and metrics (color + dash).
 function yearStyle(year) {
@@ -155,7 +166,7 @@ function renderControls() {
   const c = state.data.monitoring?.counts || {};
   byId("annual-controls").innerHTML = '<div class="metric-checks" role="group" aria-label="显示指标">' +
     metrics.map(m => '<label><input type="checkbox" data-metric="' + esc(m.key) + '"' + (state.metrics.has(m.key) ? ' checked' : '') + '>' + esc(m.label) + '</label>').join("") +
-    '</div><div class="year-controls"><details class="year-picker"><summary>对比年份 <span id="year-selection-label"></span></summary><div class="year-options"><div class="year-actions"><button type="button" id="years-all">全选年份</button><button type="button" id="years-clear">清空年份</button></div>' +
+    '</div><div class="production-controls" role="group" aria-label="高产地区筛选">' + [['all','全部地区'],['both','两国高产地区（18）'],['th','泰国前10府'],['id','印尼前8省']].map(([key,label]) => '<button type="button" data-production="' + key + '" aria-pressed="' + (state.productionFilter === key) + '">' + label + '</button>').join('') + '<a href="wecom/open_meteo_high_production_regions.png" target="_blank" rel="noopener">高产专题图 ↗</a><small>按2025产量排名，府省去重；选高产专题会清除异常条件，仍可进一步筛选。</small></div><div class="year-controls"><details class="year-picker"><summary>对比年份 <span id="year-selection-label"></span></summary><div class="year-options"><div class="year-actions"><button type="button" id="years-all">全选年份</button><button type="button" id="years-clear">清空年份</button></div>' +
     (state.data.comparison_years || []).map(y => '<label><input type="checkbox" data-year="' + y + '">' + yearSwatch(y) + y + '</label>').join("") + '</div></details><small>可多选 · 本年实况、预测和历史区间始终显示</small></div>' +
     '<div class="anomaly-controls"><strong>异常地区 ' + (c.anomaly || 0) + ' 个</strong><label>筛选 <select id="regionType"><option value="all">全部地区</option><option value="anomaly">全部异常</option><option value="high">高位</option><option value="low">低位</option><option value="missing">数据不足</option></select></label>' +
     '<details class="region-picker"><summary>选择异常地区 <span id="selected-count"></span></summary><div class="region-options">' +
@@ -164,6 +175,11 @@ function renderControls() {
     '<div class="annual-legend"><span class="legend-band">历史最低—最高（P0–P100）</span><span class="legend-actual">本年实况</span><span class="legend-forecast">未来预测</span><div id="year-legend"></div></div>' +
     '<p class="annual-baseline-note">历史区间固定 ' + state.data.annual_baseline.start + '—' + state.data.annual_baseline.end + ' 年，不随年份勾选变化；同期不足 ' + state.data.annual_baseline.minimum_years + ' 年不绘制阴影。按月日对齐，本年非闰年不绘制历史 2 月 29 日；本年闰年时，非闰年的 2 月 29 日留空。累计先逐年计算，缺日断线。点击/悬停同步查值。</p>';
   byId("regionType").value = state.regionType;
+  byId("annual-controls").querySelectorAll('[data-production]').forEach(button => button.onclick = () => {
+    state.productionFilter = button.dataset.production; state.regionType = 'all'; state.onlySelected = false; state.selected.clear();
+    const url = new URL(location.href); url.searchParams.set('production',state.productionFilter); history.replaceState(null,'',url);
+    renderControls(); renderLocations();
+  });
   byId("annual-controls").querySelectorAll("[data-metric]").forEach(box => box.addEventListener("change", () => {
     box.checked ? state.metrics.add(box.dataset.metric) : state.metrics.delete(box.dataset.metric);
     renderLocations();
@@ -182,7 +198,8 @@ function renderControls() {
   byId("regionType").addEventListener("change", event => { state.regionType = event.target.value; renderLocations(); });
   byId("onlySelected").addEventListener("change", event => { state.onlySelected = event.target.checked; renderLocations(); });
   byId("resetAnnual").addEventListener("click", () => {
-    state.metrics = new Set(metrics.map(m => m.key)); state.regionType = "all";
+    state.metrics = new Set(metrics.map(m => m.key)); state.regionType = "all"; state.productionFilter = "all";
+    const url = new URL(location.href); url.searchParams.delete('production'); history.replaceState(null,'',url);
     state.selected.clear(); state.onlySelected = false; renderControls(); renderLocations();
   });
   byId("annual-controls").querySelectorAll("[data-year]").forEach(box => box.addEventListener("change", () => {
@@ -289,15 +306,18 @@ function renderLocations() {
   const metrics = (state.data.metric_definitions || []).filter(m => state.metrics.has(m.key));
   byId("locations").innerHTML = stations.length ? '<div class="location-grid">' + stations.map(s => {
     const r = regionFor(s);
-    const label = r?.has_anomaly ? r.status + " · 影响分 " + fmt(r.impact_score, 2) : r?.has_missing ? "含数据不足项" : "正常";
+    const leader = (state.data.high_production || []).find(item => item.region_key === s.region_key);
+    const label = (leader ? '高产 #' + leader.production_rank + ' · ' : '') + (r?.status || '实际待补') + ' · 加权 ' + fmt(r?.impact_score,2);
     return '<details' + (state.closed.has(s.station_id) ? '' : ' open') + ' id="station-' + esc(s.station_id) + '" class="annual-station station-card' + (state.selected.has(s.region_key) ? ' chosen' : '') + '" data-station-id="' + esc(s.station_id) + '" data-region-key="' + esc(s.region_key) + '">' +
       '<summary><span><strong>' + esc(s.country + " · " + s.station_name) + '</strong> <span class="province">' + esc(s.production_region) + '</span><small>' + esc(productionLabel(s)) + '</small></span><span class="anomaly-badge ' + esc(r?.primary?.direction || "") + '">' + esc(label) + '</span></summary>' +
       '<div class="strip-actions"><span>' + metrics.length + ' 个指标 · 左右拖动联动所有地区 · 实况截至 ' + esc(s.actual_as_of || '待补') + '</span></div>' +
-      '<div class="chart-strip" tabindex="0" aria-label="' + esc(s.station_name) + '年度指标图">' +
+      scoreSummary(r) + '<div class="chart-strip" tabindex="0" aria-label="' + esc(s.station_name) + '年度指标图">' +
       (metrics.length ? metrics.map(m => '<figure class="annual-metric" data-station="' + esc(s.station_id) + '" data-metric="' + esc(m.key) + '"><figcaption>' + esc(m.label) + '<span>' + esc(m.unit) + '</span></figcaption><div class="plot-area"><p class="chart-placeholder">正在读取年度数据…</p></div><div class="chart-readout">点击或悬停查看同期数值</div></figure>').join("") : '<p class="chart-empty">请至少勾选一个指标。</p>') +
       '</div>' + (r?.has_anomaly ? '<p class="trigger-note">' + esc(signalText(r.primary)) + '</p>' : '') + '</details>';
   }).join("") + '</div>' : '<div class="empty">当前选择没有地点。可点击“恢复全部”。</div>';
-  if (byId("visibleCount")) byId("visibleCount").textContent = stations.length + "/" + (state.data.stations || []).length + " 个地点";
+  const missingLeaders = state.productionFilter === 'all' ? [] : productionLeaders().filter(r => r.weather_missing);
+  if (missingLeaders.length) byId('locations').insertAdjacentHTML('beforeend', missingLeaders.map(r => '<article class="missing-production"><strong>' + esc(r.country + ' · ' + r.production_region) + ' · 高产 #' + r.production_rank + '</strong><p>' + esc(productionLabel(r)) + '</p><p>天气待补，未参与评分；该地区仍保留在高产名单。</p></article>').join(''));
+  if (byId("visibleCount")) byId("visibleCount").textContent = new Set(stations.map(s=>s.region_key)).size + ' 个府省 · ' + stations.length + ' 个天气点' + (missingLeaders.length ? ' · 另有 ' + missingLeaders.length + ' 个高产区天气待补' : '');
   bindAnnualScroll();
   chartObserver = new IntersectionObserver(entries => {
     entries.forEach(entry => { if (entry.isIntersecting) drawCard(entry.target); });
@@ -305,7 +325,7 @@ function renderLocations() {
   document.querySelectorAll(".annual-metric").forEach(el => chartObserver.observe(el));
 }
 function signalText(s) {
-  return (s.period === "actual" ? "实况" : "预测") + " " + s.start + "—" + s.end + " · " + s.label + " " + fmt(s.value, s.unit === "m³/m³" ? 3 : 1) + s.unit + " · " + s.status + " · 历史P" + fmt(s.percentile) + " · P10–P90 " + fmt(s.p10, 2) + "–" + fmt(s.p90, 2) + " · 有效" + s.days + "/" + s.expected_days + "天，" + s.years + "个基准年";
+  return (s.period === "actual" ? "实况" : "预测") + ' ' + (s.data_basis || '') + " " + s.start + "—" + s.end + " · " + s.label + " " + fmt(s.value, s.unit === "m³/m³" ? 3 : 1) + s.unit + " · " + s.status + " · 连续分 " + fmt(s.climate_score,2) + " · z=" + fmt(s.z,2) + " · 历史范围 " + fmt(s.minimum, 3) + "–" + fmt(s.maximum, 3) + " · 有效" + s.days + "/" + s.expected_days + "天，" + s.years + "个基准年";
 }
 function pathSegments(values, x, y) {
   let result = "", pen = false;
@@ -450,8 +470,9 @@ async function init() {
       state.data = await response.json();
     }
     state.metrics = new Set((state.data.metric_definitions || []).map(m => m.key));
-    const previous = state.data.annual_year - 1;
-    if (state.data.comparison_years.includes(previous)) state.comparisonYears.add(previous);
+    for (const year of state.data.default_comparison_years || [2015,2016]) if (state.data.comparison_years.includes(year)) state.comparisonYears.add(year);
+    const filter = new URLSearchParams(location.search).get('production');
+    if (['all','both','th','id'].includes(filter)) state.productionFilter = filter;
     renderControls();
     byId("annual-prev").onclick = () => setAnnualPosition(state.scrollLeft - annualStride);
     byId("annual-next").onclick = () => setAnnualPosition(state.scrollLeft + annualStride);
