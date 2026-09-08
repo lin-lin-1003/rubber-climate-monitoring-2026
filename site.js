@@ -307,21 +307,22 @@ function renderRegionNavigation(stations) {
   const groups = new Map();
   for (const station of stations) {
     const key = `${station.country}\u0000${station.region}`;
-    if (!groups.has(key)) groups.set(key, {label: `${station.country} · ${station.region}`, first: station, count: 0});
-    groups.get(key).count += 1;
+    if (!groups.has(key)) groups.set(key, {label: `${station.country} · ${station.region}`, stations: []});
+    groups.get(key).stations.push(station);
   }
-  nav.hidden = groups.size < 2;
-  items.innerHTML = [...groups.entries()].map(([key, group]) =>
-    '<button type="button" data-region-jump="' + esc(key) + '">' + esc(group.label) + ' <small>' + group.count + '</small></button>'
-  ).join('');
-  items.querySelectorAll('[data-region-jump]').forEach(button => button.addEventListener('click', () => {
-    const group = groups.get(button.dataset.regionJump);
-    const row = group && byId('station-' + group.first.station_id);
+  nav.hidden = groups.size === 0;
+  items.innerHTML = '<label for="location-jump">跳转到地点</label><select id="location-jump"><option value="">选择国家 / 地区 / 地点…</option>' +
+    [...groups.values()].map(group => '<optgroup label="' + esc(group.label) + '">' +
+      group.stations.map(station => '<option value="' + esc(station.station_id) + '">' + esc(station.station_name) + '</option>').join('') +
+    '</optgroup>').join('') + '</select>';
+  const select = byId('location-jump');
+  select.addEventListener('change', () => {
+    const station = stations.find(item => String(item.station_id) === select.value);
+    const row = station && byId('station-' + station.station_id);
     if (!row) return;
     row.open = true;
     row.scrollIntoView({behavior: 'smooth', block: 'start'});
-    row.focus({preventScroll: true});
-  }));
+  });
 }
 function renderLocations() {
   if (chartObserver) chartObserver.disconnect();
