@@ -1,6 +1,6 @@
 "use strict";
 
-const state = {data: null, sort: "region", metrics: new Set(), regionType: "all", selected: new Set(), onlySelected: false, annual: new Map(), comparisonYears: new Set(), scrollLeft: 0, closed: new Set(), dateIndex: null, dragging: false, productionFilter: "all"};
+const state = {data: null, sort: "region", metrics: new Set(), regionType: "all", selected: new Set(), onlySelected: false, annual: new Map(), comparisonYears: new Set(), scrollLeft: 0, closed: new Set(), dateIndex: null, dragging: false, productionFilter: "all", yearColors: {}, yearPalette: "classic"};
 const byId = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
 const finite = value => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
@@ -134,12 +134,17 @@ function scoreSummary(region) {
   const details = (region.signals || []).filter(s => s.core).map(s => '<tr><td>' + esc((s.period === 'actual' ? '实况' : '预测') + ' · ' + s.label) + '<small>' + esc(s.station_name + ' / ' + (s.data_basis || '') + ' / ' + s.start + '—' + s.end) + '</small></td><td>' + fmt(s.value,s.unit==='m³/m³'?3:1) + ' ' + esc(s.unit) + '</td><td>' + fmt(s.mean,3) + ' / ' + fmt(s.std,3) + '</td><td>' + fmt(s.z,2) + '</td><td>' + fmt(s.climate_score,2) + '</td><td>' + fmt(s.minimum,3) + '—' + fmt(s.maximum,3) + '<small>' + esc(s.status) + '</small></td></tr>').join('');
   return '<div class="score-summary">' + render(periods.actual,'实况综合') + render(periods.forecast,'预测综合') + '<small>深层缺水50%＋降雨30%＋温度20%（7日/30日均温得分平均）；缺项不合成，不是减产率。实况深层贡献 ' + fmt(periods.actual?.contributions?.moisture) + ' 分。</small></div><details class="score-details"><summary>查看连续分项、标准差与历史范围</summary><div class="table-wrap"><table><thead><tr><th>指标 / 时段</th><th>当前值</th><th>历史均值 / 标准差</th><th>z</th><th>连续分</th><th>历史范围 / 状态</th></tr></thead><tbody>' + details + '</tbody></table></div></details>';
 }
+const YEAR_PALETTES = {
+  classic: {label: "经典柔和", colors: ["#887018", "#934b70", "#637238", "#b56422", "#57637b"]},
+  bright: {label: "鲜明", colors: ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9"]},
+  cool: {label: "冷色", colors: ["#1D4ED8", "#0891B2", "#0F766E", "#4F46E5", "#7C3AED", "#0369A1"]},
+  warm: {label: "暖色", colors: ["#B91C1C", "#C2410C", "#A16207", "#BE123C", "#9F1239", "#7C2D12"]}
+};
+function saveYearColors() { try { localStorage.setItem("rubber-weather-year-colors", JSON.stringify({colors: state.yearColors, palette: state.yearPalette})); } catch (_) {} }
+function loadYearColors() { try { const saved = JSON.parse(localStorage.getItem("rubber-weather-year-colors") || "{}"); if (saved && typeof saved.colors === "object") state.yearColors = saved.colors; if (YEAR_PALETTES[saved?.palette]) state.yearPalette = saved.palette; } catch (_) {} }
+function setYearPalette(name) { const palette = YEAR_PALETTES[name]; if (!palette) return; state.yearPalette = name; state.yearColors = Object.fromEntries((state.data.comparison_years || []).map((year, index) => [year, palette.colors[index % palette.colors.length]])); saveYearColors(); renderControls(); updateYears(); }
 // Year identity is stable across selections, stations and metrics (color + dash).
-function yearStyle(year) {
-  const colors = ["#887018", "#934b70", "#637238", "#b56422", "#57637b"];
-  const index = (state.data.comparison_years || []).indexOf(Number(year));
-  return {color: colors[Math.max(0, index) % colors.length], dash: ["7 3", "2 3", "9 3 2 3"][Math.floor(Math.max(0, index) / colors.length) % 3]};
-}
+function yearStyle(year) { const index = Math.max(0, (state.data.comparison_years || []).indexOf(Number(year))); const palette = YEAR_PALETTES[state.yearPalette] || YEAR_PALETTES.classic; return {color: state.yearColors[year] || palette.colors[index % palette.colors.length], dash: ["7 3", "2 3", "9 3 2 3"][Math.floor(index / palette.colors.length) % 3]}; }
 function selectedYears() { return (state.data.comparison_years || []).filter(y => state.comparisonYears.has(y)); }
 function yearSwatch(year) {
   const style = yearStyle(year);
@@ -176,7 +181,7 @@ async function exportChartPng(station, metric, host) {
   const namespace = "http://www.w3.org/2000/svg", plot = document.createElementNS(namespace, "g"); plot.setAttribute("transform", "translate(0 46)");
   while (copy.firstChild) plot.appendChild(copy.firstChild); copy.appendChild(plot);
   const selectedLegend = selectedYears().map((year, index) => { const style = yearStyle(year); const x = 372 + (index % 3) * 92, y = 35 + Math.floor(index / 3) * 14; return `<line x1="${x}" x2="${x + 18}" y1="${y - 3}" y2="${y - 3}" stroke="${style.color}" stroke-width="1.4" stroke-dasharray="${style.dash}"/><text x="${x + 22}" y="${y}" class="chart-label">${year}</text>`; }).join("");
-  copy.insertAdjacentHTML("afterbegin", '<style>.chart-grid{stroke:#e3ebe9;stroke-width:1}.chart-label{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;font-size:10px;fill:#62767b}.export-title{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;font-weight:700;fill:#173036}</style><rect width="660" height="300" fill="#fbfdfc"/><text x="18" y="20" class="export-title">' + esc(metric.label) + '（' + esc(metric.unit) + '）</text><rect x="18" y="28" width="18" height="8" fill="#d9eaf4"/><text x="40" y="35" class="chart-label">历史最低—最高</text><line x1="128" x2="146" y1="32" y2="32" stroke="#246bc0" stroke-width="2"/><text x="150" y="35" class="chart-label">本年实况</text><line x1="225" x2="243" y1="32" y2="32" stroke="#cd5145" stroke-width="2" stroke-dasharray="5 3"/><text x="247" y="35" class="chart-label">未来预测</text>' + selectedLegend);
+  copy.insertAdjacentHTML("afterbegin", '<style>.chart-grid{stroke:#e3ebe9;stroke-width:1}.chart-label{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;font-size:10px;fill:#62767b}.export-title{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;font-weight:700;fill:#173036}</style><rect width="660" height="300" fill="#fbfdfc"/><text x="18" y="20" class="export-title">' + esc(metric.label) + '（' + esc(metric.unit) + '）</text><rect x="18" y="28" width="18" height="8" fill="#d9eaf4"/><text x="40" y="35" class="chart-label">历史最低—最高</text><line x1="128" x2="146" y1="32" y2="32" stroke="#246bc0" stroke-width="3.5"/><text x="150" y="35" class="chart-label">本年实况</text><line x1="225" x2="243" y1="32" y2="32" stroke="#cd5145" stroke-width="2" stroke-dasharray="5 3"/><text x="247" y="35" class="chart-label">未来预测</text>' + selectedLegend);
   const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(copy)], {type: "image/svg+xml;charset=utf-8"}));
   try {
     const image = await new Promise((resolve, reject) => { const value = new Image(); value.onload = () => resolve(value); value.onerror = reject; value.src = url; });
@@ -219,7 +224,7 @@ function renderControls() {
   byId("annual-controls").innerHTML = '<div class="metric-checks" role="group" aria-label="显示指标">' +
     metrics.map(m => '<label><input type="checkbox" data-metric="' + esc(m.key) + '"' + (state.metrics.has(m.key) ? ' checked' : '') + '>' + esc(m.label) + '</label>').join("") +
     '</div><div class="production-controls" role="group" aria-label="高产地区筛选">' + [['all','全部地区'],['both','两国高产地区（18）'],['th','泰国前10府'],['id','印尼前8省']].map(([key,label]) => '<button type="button" data-production="' + key + '" aria-pressed="' + (state.productionFilter === key) + '">' + label + '</button>').join('') + '<a href="wecom/open_meteo_high_production_regions.png" target="_blank" rel="noopener">高产专题图 ↗</a><small>按2025产量排名，府省去重；选高产专题会清除异常条件，仍可进一步筛选。</small></div><div class="year-controls"><details class="year-picker"><summary>对比年份 <span id="year-selection-label"></span></summary><div class="year-options"><div class="year-actions"><button type="button" id="years-all">全选年份</button><button type="button" id="years-clear">清空年份</button></div>' +
-    (state.data.comparison_years || []).map(y => '<label><input type="checkbox" data-year="' + y + '">' + yearSwatch(y) + y + '</label>').join("") + '</div></details><small>可多选 · 本年实况、预测和历史区间始终显示</small></div>' +
+    (state.data.comparison_years || []).map(y => '<label><input type="checkbox" data-year="' + y + '">' + yearSwatch(y) + y + '</label>').join("") + '</div></details><details class="year-color-picker"><summary>年份配色</summary><div class="year-color-options"><label>预设 <select id="year-palette">' + Object.entries(YEAR_PALETTES).map(([key, palette]) => '<option value="' + key + '"' + (state.yearPalette === key ? ' selected' : '') + '>' + esc(palette.label) + '</option>').join("") + '</select></label><div class="year-color-list">' + (state.data.comparison_years || []).map(year => '<label><input type="color" data-year-color="' + year + '" value="' + esc(yearStyle(year).color) + '"><span>' + year + '</span></label>').join("") + '</div><small>颜色保存在当前浏览器；调整后图例、网页图和导出图片同步更新。</small></div></details><small>可多选 · 本年实况加粗显示；预测和历史区间始终显示</small></div>' +
     '<div class="export-controls"><button type="button" id="export-images"' + (state.data.image_export?.enabled ? '' : ' disabled') + '>导出所选指标图片</button><small>输入下载密码后，打包全部地区的当前勾选指标。</small></div><div class="anomaly-controls"><strong>异常地区 ' + (c.anomaly || 0) + ' 个</strong><label>筛选 <select id="regionType"><option value="all">全部地区</option><option value="anomaly">全部异常</option><option value="high">高位</option><option value="low">低位</option><option value="missing">数据不足</option></select></label>' +
     '<details class="region-picker"><summary>选择异常地区 <span id="selected-count"></span></summary><div class="region-options">' +
     allRegions().filter(r => r.has_anomaly || r.has_missing).map(r => '<label><input type="checkbox" data-region="' + esc(r.region_key) + '"' + (state.selected.has(r.region_key) ? ' checked' : '') + '><span>' + esc(r.country + " · " + r.production_region + '（' + r.station_names.join('、') + '）') + '<small>' + esc(r.status) + ' · 影响分 ' + fmt(r.impact_score, 2) + (r.has_missing ? ' · 含数据不足项' : '') + '</small></span></label>').join("") +
@@ -262,6 +267,8 @@ function renderControls() {
   }));
   byId("years-all").onclick = () => { state.comparisonYears = new Set(state.data.comparison_years); updateYears(); };
   byId("years-clear").onclick = () => { state.comparisonYears.clear(); updateYears(); };
+  byId("year-palette").addEventListener("change", event => setYearPalette(event.target.value));
+  byId("annual-controls").querySelectorAll("[data-year-color]").forEach(input => input.addEventListener("input", () => { state.yearColors[input.dataset.yearColor] = input.value; state.yearPalette = "custom"; saveYearColors(); updateYears(); }));
   updateYears();
   updateSelection();
 }
@@ -454,7 +461,7 @@ function drawCard(card) {
     const style = yearStyle(year);
     body += '<path class="comparison-year" data-year="' + year + '" d="' + pathSegments(series.history[String(year)] || [],x,y) + '" fill="none" stroke="' + style.color + '" stroke-width="1.4" stroke-dasharray="' + style.dash + '"/>';
   });
-  body += '<path class="actual-line" d="' + pathSegments(series.actual,x,y) + '" fill="none" stroke="#246bc0" stroke-width="2"/>' +
+  body += '<path class="actual-line" d="' + pathSegments(series.actual,x,y) + '" fill="none" stroke="#246bc0" stroke-width="3.5"/>' +
     '<path d="' + pathSegments(series.forecast,x,y) + '" fill="none" stroke="#cd5145" stroke-width="2" stroke-dasharray="5 3"/>' +
     '<line class="sync-cursor" x1="54" x2="54" y1="30" y2="215" stroke="#536c69" stroke-dasharray="3 3" opacity="0"/>';
   card.querySelector(".plot-area").innerHTML = '<svg role="img" aria-label="' + esc(card.querySelector("figcaption").textContent) + '年度图" viewBox="0 0 660 250">' + body + '</svg>';
@@ -548,6 +555,7 @@ async function init() {
       state.data = await response.json();
     }
     state.metrics = new Set((state.data.metric_definitions || []).map(m => m.key));
+    loadYearColors();
     for (const year of state.data.default_comparison_years || [2015,2016]) if (state.data.comparison_years.includes(year)) state.comparisonYears.add(year);
     const filter = new URLSearchParams(location.search).get('production');
     if (['all','both','th','id'].includes(filter)) state.productionFilter = filter;
