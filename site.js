@@ -172,13 +172,16 @@ async function exportChartPng(station, metric, host) {
   card.innerHTML = '<figcaption>' + esc(metric.label) + '<span>' + esc(metric.unit) + '</span></figcaption><div class="plot-area"></div><div class="chart-readout"></div>';
   host.appendChild(card); drawCard(card);
   const svg = card.querySelector("svg"); if (!svg) throw new Error(`${station.station_name} · ${metric.label}`);
-  const copy = svg.cloneNode(true); copy.setAttribute("width", "1320"); copy.setAttribute("height", "500");
-  copy.insertAdjacentHTML("afterbegin", '<style>.chart-grid{stroke:#e3ebe9;stroke-width:1}.chart-label{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;font-size:10px;fill:#62767b}</style>');
+  const copy = svg.cloneNode(true); copy.setAttribute("viewBox", "0 0 660 300"); copy.setAttribute("width", "1320"); copy.setAttribute("height", "600");
+  const namespace = "http://www.w3.org/2000/svg", plot = document.createElementNS(namespace, "g"); plot.setAttribute("transform", "translate(0 46)");
+  while (copy.firstChild) plot.appendChild(copy.firstChild); copy.appendChild(plot);
+  const selectedLegend = selectedYears().map((year, index) => { const style = yearStyle(year); const x = 372 + (index % 3) * 92, y = 35 + Math.floor(index / 3) * 14; return `<line x1="${x}" x2="${x + 18}" y1="${y - 3}" y2="${y - 3}" stroke="${style.color}" stroke-width="1.4" stroke-dasharray="${style.dash}"/><text x="${x + 22}" y="${y}" class="chart-label">${year}</text>`; }).join("");
+  copy.insertAdjacentHTML("afterbegin", '<style>.chart-grid{stroke:#e3ebe9;stroke-width:1}.chart-label{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;font-size:10px;fill:#62767b}.export-title{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;font-weight:700;fill:#173036}</style><rect width="660" height="300" fill="#fbfdfc"/><text x="18" y="20" class="export-title">' + esc(metric.label) + '（' + esc(metric.unit) + '）</text><rect x="18" y="28" width="18" height="8" fill="#d9eaf4"/><text x="40" y="35" class="chart-label">历史最低—最高</text><line x1="128" x2="146" y1="32" y2="32" stroke="#246bc0" stroke-width="2"/><text x="150" y="35" class="chart-label">本年实况</text><line x1="225" x2="243" y1="32" y2="32" stroke="#cd5145" stroke-width="2" stroke-dasharray="5 3"/><text x="247" y="35" class="chart-label">未来预测</text>' + selectedLegend);
   const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(copy)], {type: "image/svg+xml;charset=utf-8"}));
   try {
     const image = await new Promise((resolve, reject) => { const value = new Image(); value.onload = () => resolve(value); value.onerror = reject; value.src = url; });
-    const canvas = document.createElement("canvas"); canvas.width = 1320; canvas.height = 500;
-    const context = canvas.getContext("2d"); context.fillStyle = "#fbfdfc"; context.fillRect(0, 0, 1320, 500); context.drawImage(image, 0, 0, 1320, 500);
+    const canvas = document.createElement("canvas"); canvas.width = 1320; canvas.height = 600;
+    const context = canvas.getContext("2d"); context.fillStyle = "#fbfdfc"; context.fillRect(0, 0, 1320, 600); context.drawImage(image, 0, 0, 1320, 600);
     const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error("无法转换图像")), "image/png"));
     return new Uint8Array(await blob.arrayBuffer());
   } finally { URL.revokeObjectURL(url); card.remove(); }
