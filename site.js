@@ -300,10 +300,33 @@ function bindAnnualScroll() {
   });
   refreshAnnualGeometry();
 }
+function renderRegionNavigation(stations) {
+  const nav = byId("region-navigation");
+  if (!nav) return;
+  const groups = new Map();
+  for (const station of stations) {
+    const key = `${station.country}\u0000${station.region}`;
+    if (!groups.has(key)) groups.set(key, {label: `${station.country} · ${station.region}`, first: station, count: 0});
+    groups.get(key).count += 1;
+  }
+  nav.hidden = groups.size < 2;
+  nav.innerHTML = '<span>地区导航</span>' + [...groups.entries()].map(([key, group]) =>
+    '<button type="button" data-region-jump="' + esc(key) + '">' + esc(group.label) + ' <small>' + group.count + '</small></button>'
+  ).join('');
+  nav.querySelectorAll('[data-region-jump]').forEach(button => button.addEventListener('click', () => {
+    const group = groups.get(button.dataset.regionJump);
+    const row = group && byId('station-' + group.first.station_id);
+    if (!row) return;
+    row.open = true;
+    row.scrollIntoView({behavior: 'smooth', block: 'start'});
+    row.focus({preventScroll: true});
+  }));
+}
 function renderLocations() {
   if (chartObserver) chartObserver.disconnect();
   const stations = filteredStations();
   const metrics = (state.data.metric_definitions || []).filter(m => state.metrics.has(m.key));
+  renderRegionNavigation(stations);
   byId("locations").innerHTML = stations.length ? '<div class="location-grid">' + stations.map(s => {
     const r = regionFor(s);
     const leader = (state.data.high_production || []).find(item => item.region_key === s.region_key);
