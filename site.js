@@ -167,7 +167,41 @@ const crcTable = (() => { const table = new Uint32Array(256); for (let index = 0
 function crc32(bytes) { let code = 0xffffffff; for (const byte of bytes) code = crcTable[(code ^ byte) & 0xff] ^ (code >>> 8); return (code ^ 0xffffffff) >>> 0; }
 function u16(value) { return [value & 255, (value >>> 8) & 255]; } function u32(value) { return [value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255]; }
 function storeZip(entries) { const encoder = new TextEncoder(), chunks = [], central = []; let offset = 0; for (const entry of entries) { const name = encoder.encode(entry.name), data = entry.data, crc = crc32(data), size = data.length; const local = new Uint8Array([80,75,3,4,20,0,0,8,0,0,0,0,0,0,...u32(crc),...u32(size),...u32(size),...u16(name.length),0,0,...name]); chunks.push(local, data); central.push(new Uint8Array([80,75,1,2,20,0,20,0,0,8,0,0,0,0,0,0,...u32(crc),...u32(size),...u32(size),...u16(name.length),0,0,0,0,0,0,0,0,0,0,0,0,...u32(offset),...name])); offset += local.length + size; } const centralSize = central.reduce((sum, item) => sum + item.length, 0); const end = new Uint8Array([80,75,5,6,0,0,0,0,...u16(entries.length),...u16(entries.length),...u32(centralSize),...u32(offset),0,0]); return new Blob([...chunks, ...central, end], {type: "application/zip"}); }
-async function exportAnnualImages() { const config = state.data.image_export || {}; if (!config.enabled || !config.password_sha256) { alert("图片导出尚未配置下载密码。"); return; } const password = window.prompt("请输入下载密码"); if (password === null) return; if (await sha256Hex(password) !== config.password_sha256) { alert("密码不正确，未开始下载。"); return; } const metrics = (state.data.metric_definitions || []).filter(metric => state.metrics.has(metric.key)); if (!metrics.length) { alert("请至少选择一个指标后再导出。"); return; } const button = byId("export-images"), original = button.textContent; button.disabled = true; try { const tasks = orderedStations().flatMap(station => metrics.map(metric => ({station, metric}))), entries = []; for (let start = 0; start < tasks.length; start += 6) { const batch = tasks.slice(start, start + 6); const fetched = await Promise.all(batch.map(async ({station, metric}) => { const response = await fetch(`${config.base_url}/${encodeURIComponent(station.station_id)}/${encodeURIComponent(metric.key)}.png`); if (!response.ok) throw new Error(`${station.station_name} · ${metric.label}`); const folder = [station.country, station.region, station.station_name].map(zipSafeName).join("/"); return {name: `${folder}/${zipSafeName(metric.label)}.png`, data: new Uint8Array(await response.arrayBuffer())}; })); entries.push(...fetched); button.textContent = `正在读取图片 ${Math.min(start + batch.length, tasks.length)}/${tasks.length}`; } button.textContent = "正在生成压缩包…"; const link = document.createElement("a"); link.href = URL.createObjectURL(storeZip(entries)); link.download = `橡胶天气_年度图_${new Date().toISOString().slice(0, 10)}.zip`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 30000); } catch (error) { console.error(error); alert(`图片导出失败：${error.message || "请稍后重试"}`); } finally { button.disabled = false; button.textContent = original; } }
+async function exportChartPng(station, metric, host) {
+  const card = document.createElement("figure"); card.className = "annual-metric"; card.dataset.station = station.station_id; card.dataset.metric = metric.key;
+  card.innerHTML = '<figcaption>' + esc(metric.label) + '<span>' + esc(metric.unit) + '</span></figcaption><div class="plot-area"></div><div class="chart-readout"></div>';
+  host.appendChild(card); drawCard(card);
+  const svg = card.querySelector("svg"); if (!svg) throw new Error(`${station.station_name} · ${metric.label}`);
+  const copy = svg.cloneNode(true); copy.setAttribute("width", "1320"); copy.setAttribute("height", "500");
+  copy.insertAdjacentHTML("afterbegin", '<style>.chart-grid{stroke:#e3ebe9;stroke-width:1}.chart-label{font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif;font-size:10px;fill:#62767b}</style>');
+  const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(copy)], {type: "image/svg+xml;charset=utf-8"}));
+  try {
+    const image = await new Promise((resolve, reject) => { const value = new Image(); value.onload = () => resolve(value); value.onerror = reject; value.src = url; });
+    const canvas = document.createElement("canvas"); canvas.width = 1320; canvas.height = 500;
+    const context = canvas.getContext("2d"); context.fillStyle = "#fbfdfc"; context.fillRect(0, 0, 1320, 500); context.drawImage(image, 0, 0, 1320, 500);
+    const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error("无法转换图像")), "image/png"));
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally { URL.revokeObjectURL(url); card.remove(); }
+}
+async function exportAnnualImages() {
+  const config = state.data.image_export || {}; if (!config.enabled || !config.password_sha256) { alert("图片导出尚未配置下载密码。"); return; }
+  const password = window.prompt("请输入下载密码"); if (password === null) return;
+  if (await sha256Hex(password) !== config.password_sha256) { alert("密码不正确，未开始下载。"); return; }
+  const metrics = (state.data.metric_definitions || []).filter(metric => state.metrics.has(metric.key)); if (!metrics.length) { alert("请至少选择一个指标后再导出。"); return; }
+  const button = byId("export-images"), original = button.textContent; button.disabled = true;
+  const host = document.createElement("div"); host.style.cssText = "position:fixed;left:-10000px;top:0;width:660px;visibility:hidden;pointer-events:none"; document.body.appendChild(host);
+  try {
+    button.textContent = "正在加载年度数据…"; await loadAnnual();
+    const tasks = orderedStations().flatMap(station => metrics.map(metric => ({station, metric}))), entries = [];
+    for (let index = 0; index < tasks.length; index += 1) {
+      const {station, metric} = tasks[index], data = await exportChartPng(station, metric, host);
+      const folder = [station.country, station.region, station.station_name].map(zipSafeName).join("/"); entries.push({name: `${folder}/${zipSafeName(metric.label)}.png`, data});
+      button.textContent = `正在绘制网页年度图 ${index + 1}/${tasks.length}`;
+    }
+    button.textContent = "正在生成压缩包…"; const link = document.createElement("a"); link.href = URL.createObjectURL(storeZip(entries)); link.download = `橡胶天气_年度图_${new Date().toISOString().slice(0, 10)}.zip`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 30000);
+  } catch (error) { console.error(error); alert(`图片导出失败：${error.message || "请稍后重试"}`); }
+  finally { host.remove(); button.disabled = false; button.textContent = original; }
+}
 function renderControls() {
   const metrics = state.data.metric_definitions || [];
   const c = state.data.monitoring?.counts || {};
