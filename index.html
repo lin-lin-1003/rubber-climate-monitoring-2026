@@ -196,12 +196,20 @@ async function exportAnnualImages() {
   try {
     button.textContent = "正在加载年度数据…"; await loadAnnual();
     const tasks = orderedStations().flatMap(station => metrics.map(metric => ({station, metric}))), entries = [];
+    const failures = [];
     for (let index = 0; index < tasks.length; index += 1) {
-      const {station, metric} = tasks[index], data = await exportChartPng(station, metric, host);
-      const folder = [station.country, station.region, station.station_name].map(zipSafeName).join("/"); entries.push({name: `${folder}/${zipSafeName(metric.label)}.png`, data});
-      button.textContent = `正在绘制网页年度图 ${index + 1}/${tasks.length}`;
+      const {station, metric} = tasks[index];
+      try {
+        const data = await exportChartPng(station, metric, host);
+        const folder = [station.country, station.region, station.station_name].map(zipSafeName).join("/"); entries.push({name: `${folder}/${zipSafeName(metric.label)}.png`, data});
+      } catch (error) {
+        console.error(error); failures.push(`${station.country}·${station.region}·${station.station_name}（${metric.label}）`);
+      }
+      button.textContent = `正在绘制网页年度图 ${index + 1}/${tasks.length} · 已跳过 ${failures.length}`;
     }
+    if (!entries.length) throw new Error("所有地点图均导出失败");
     button.textContent = "正在生成压缩包…"; const link = document.createElement("a"); link.href = URL.createObjectURL(storeZip(entries)); link.download = `橡胶天气_年度图_${new Date().toISOString().slice(0, 10)}.zip`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 30000);
+    alert(failures.length ? `导出完成：已跳过 ${failures.length} 张图片。\\n${failures.join("\\n")}` : `导出完成：共 ${entries.length} 张图片。`);
   } catch (error) { console.error(error); alert(`图片导出失败：${error.message || "请稍后重试"}`); }
   finally { host.remove(); button.disabled = false; button.textContent = original; }
 }
