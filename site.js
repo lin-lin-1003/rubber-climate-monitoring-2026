@@ -445,7 +445,7 @@ function setSort(mode) {
   });
   byId("sort-description").textContent = mode === "region"
     ? "当前排序：按地区纬度。两部分均按地区纬度从北到南排列。"
-    : "当前排序：按地点纬度。两部分的 67 个地点均按实际纬度全局排列。";
+    : "当前排序：按地点纬度。两部分的 " + (state.data?.stations?.length || 0) + " 个地点均按实际纬度全局排列。";
   if (state.data) {
     renderAll();
     for (const id of ["rainfall", "locations"]) {
