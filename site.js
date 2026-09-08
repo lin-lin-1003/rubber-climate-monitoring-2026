@@ -302,7 +302,8 @@ function bindAnnualScroll() {
 }
 function renderRegionNavigation(stations) {
   const nav = byId("region-navigation");
-  if (!nav) return;
+  const items = nav?.querySelector(".region-navigation-items");
+  if (!nav || !items) return;
   const groups = new Map();
   for (const station of stations) {
     const key = `${station.country}\u0000${station.region}`;
@@ -310,10 +311,10 @@ function renderRegionNavigation(stations) {
     groups.get(key).count += 1;
   }
   nav.hidden = groups.size < 2;
-  nav.innerHTML = '<span>地区导航</span>' + [...groups.entries()].map(([key, group]) =>
+  items.innerHTML = [...groups.entries()].map(([key, group]) =>
     '<button type="button" data-region-jump="' + esc(key) + '">' + esc(group.label) + ' <small>' + group.count + '</small></button>'
   ).join('');
-  nav.querySelectorAll('[data-region-jump]').forEach(button => button.addEventListener('click', () => {
+  items.querySelectorAll('[data-region-jump]').forEach(button => button.addEventListener('click', () => {
     const group = groups.get(button.dataset.regionJump);
     const row = group && byId('station-' + group.first.station_id);
     if (!row) return;
