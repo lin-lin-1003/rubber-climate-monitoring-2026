@@ -5,7 +5,7 @@ main{margin-left:285px;padding:24px;max-width:2400px}h1{font-size:26px;margin:0 
 @media(max-width:1100px){.sidebar{width:245px;padding:12px}main{margin-left:245px;padding:16px}.chart-pair{grid-template-columns:minmax(540px,1fr) minmax(540px,1fr)}}
 @media(max-width:650px){.sidebar{width:170px;padding:9px;font-size:12px}.sidebar h2{font-size:14px}.sidebar button,.sidebar select{font-size:12px;padding:4px}.year-picker{grid-template-columns:repeat(2,1fr)}input[type=number]{width:86px}.axis-controls{gap:5px}main{margin-left:170px;padding:10px}h1{font-size:20px}.station-card{padding:10px}.station-card h2{font-size:17px}.chart-pair{grid-template-columns:520px 520px}.station-nav a{padding:4px 2px}}
 </style></head><body>
-<aside class="sidebar"><a href="../">← 返回日均水位</a><h2>年份 · 当前地区</h2><div class="actions"><button type="button" data-preset="recent">近5年</button><button type="button" data-preset="all">全部</button><button type="button" data-preset="none">清空</button></div><fieldset class="year-picker" aria-label="选择年份"></fieldset>
+<aside class="sidebar"><a href="../">← 返回日均水位</a><h2>年份 · 所有地区</h2><div class="actions"><button type="button" data-preset="recent">近5年</button><button type="button" data-preset="all">全部</button><button type="button" data-preset="none">清空</button></div><fieldset class="year-picker" aria-label="选择年份"></fieldset>
 <h2>纵轴 · 当前地区</h2><label>地区 <select id="axis-station"><option value="jinghong">景洪</option><option value="chiang_saen">清盛</option><option value="luang_prabang">琅勃拉邦</option><option value="chiang_khan">清刊</option><option value="nong_khai">廊开</option><option value="paksane">北汕</option><option value="nakhon_phanom">那空拍侬</option><option value="thakhek">他曲</option><option value="mukdahan">穆达汉</option><option value="khong_chiam">孔尖</option><option value="pakse">巴色</option><option value="stung_treng">上丁</option><option value="kratie">桔井</option><option value="koh_khel">高凯</option><option value="tan_chau">新洲</option></select></label><form class="axis-controls"><label>最小值 <input name="y-min" type="number" step="any" required></label><label>最大值 <input name="y-max" type="number" step="any" required></label><button type="submit">应用范围</button><button type="button" data-axis-auto>恢复自动</button></form><p class="axis-status" role="status"></p>
 <h2>地区 · 上游 → 下游</h2><nav class="station-nav" aria-label="上下游站点导航"><a href="#jinghong" data-station="jinghong"><span>01</span>景洪</a><a href="#chiang_saen" data-station="chiang_saen"><span>02</span>清盛</a><a href="#luang_prabang" data-station="luang_prabang"><span>03</span>琅勃拉邦</a><a href="#chiang_khan" data-station="chiang_khan"><span>04</span>清刊</a><a href="#nong_khai" data-station="nong_khai"><span>05</span>廊开</a><a href="#paksane" data-station="paksane"><span>06</span>北汕</a><a href="#nakhon_phanom" data-station="nakhon_phanom"><span>07</span>那空拍侬</a><a href="#thakhek" data-station="thakhek"><span>08</span>他曲</a><a href="#mukdahan" data-station="mukdahan"><span>09</span>穆达汉</a><a href="#khong_chiam" data-station="khong_chiam"><span>10</span>孔尖</a><a href="#pakse" data-station="pakse"><span>11</span>巴色</a><a href="#stung_treng" data-station="stung_treng"><span>12</span>上丁</a><a href="#kratie" data-station="kratie"><span>13</span>桔井</a><a href="#koh_khel" data-station="koh_khel"><span>14</span>高凯</a><a href="#tan_chau" data-station="tan_chau"><span>15</span>新洲</a></nav></aside>
 <main><header><h1>湄公河07时历史观测</h1><p>官方07时单次水位，非全天日均 · 2026年红色粗线 · 浅蓝为往年最低—最高 · 右图为连续7日平均，缺测留空 · 每日08:00更新</p></header>
@@ -25,7 +25,11 @@ main{margin-left:285px;padding:24px;max-width:2400px}h1{font-size:26px;margin:0 
   const picker=document.querySelector('.year-picker'), axisForm=document.querySelector('.axis-controls');
   const minInput=axisForm.elements['y-min'],maxInput=axisForm.elements['y-max'];
   const axisStatus=document.querySelector('.axis-status'),stationSelect=document.getElementById('axis-station');
-  const states=new Map(charts.map(c=>[c.id,{selected:new Set(c.daily.default_years.map(String)),manual:null,renders:[]} ]));
+  const allYears=[...new Set(charts.flatMap(c=>Object.keys(c.daily.years)))].sort();
+  const recentYears=[...new Set(charts.flatMap(c=>c.daily.default_years.map(String)))].sort();
+  const selectedYears=new Set(recentYears);
+  const states=new Map(charts.map(c=>[c.id,{selected:selectedYears,manual:null,renders:[]} ]));
+  function renderAll(){states.forEach(state=>state.renders.forEach(f=>f()));}
   let current=charts[0].id;
   function range(c,state) {
     const values=['daily','ma7'].flatMap(metric=>{
@@ -36,10 +40,10 @@ main{margin-left:285px;padding:24px;max-width:2400px}h1{font-size:26px;margin:0 
   }
   function controls() {
     const c=charts.find(c=>c.id===current),state=states.get(current);picker.replaceChildren();
-    Object.keys(c.daily.years).sort().forEach(year=>{
+    allYears.forEach(year=>{
       const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=year;input.checked=state.selected.has(year);
       label.style.color=color(year);label.style.setProperty('--year-color',color(year));if(year==='2026')label.style.fontWeight='700';
-      input.addEventListener('change',()=>{input.checked?state.selected.add(year):state.selected.delete(year);state.renders.forEach(f=>f());controls();});
+      input.addEventListener('change',()=>{input.checked?selectedYears.add(year):selectedYears.delete(year);renderAll();controls();});
       label.append(input,document.createTextNode(' '+year));picker.append(label);
     });
     const [low,high]=range(c,state);minInput.value=low.toFixed(3);maxInput.value=high.toFixed(3);
@@ -55,9 +59,9 @@ main{margin-left:285px;padding:24px;max-width:2400px}h1{font-size:26px;margin:0 
   });
   document.querySelector('[data-axis-auto]').addEventListener('click',()=>{const state=states.get(current);state.manual=null;state.renders.forEach(f=>f());controls();});
   document.querySelectorAll('[data-preset]').forEach(button=>button.addEventListener('click',()=>{
-    const c=charts.find(c=>c.id===current),state=states.get(current);state.selected.clear();
-    (button.dataset.preset==='all'?Object.keys(c.daily.years):button.dataset.preset==='recent'?c.daily.default_years.map(String):[]).forEach(y=>state.selected.add(y));
-    state.renders.forEach(f=>f());controls();
+    selectedYears.clear();
+    (button.dataset.preset==='all'?allYears:button.dataset.preset==='recent'?recentYears:[]).forEach(y=>selectedYears.add(y));
+    renderAll();controls();
   }));
   for(const station of charts) for(const metric of ['daily','ma7']) {
     const chart={...station[metric],id:station.id+'-'+metric,name:station.name};
