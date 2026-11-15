@@ -6,6 +6,30 @@ const esc = value => String(value ?? "").replace(/[&<>'"]/g, char => ({"&":"&amp
 const finite = value => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
 const latitude = station => finite(station.latitude) ? Number(station.latitude) : -Infinity;
 const fmt = (value, digits = 1) => finite(value) ? Number(value).toFixed(digits) : "—";
+let calendarMode = ClimateCalendar.mode();
+const lunarWeather = new WeakMap();
+function annualView(payload) {
+  if (!payload || calendarMode !== 'lunar' || payload.error) return payload;
+  if (lunarWeather.has(payload)) return lunarWeather.get(payload);
+  const source=payload.calendar_source;
+  if(!source) return {error:'农历数据尚未生成，请重新生成页面'};
+  const year=ClimateCalendar.parts(source.reference).year, metrics={};
+  let aligned;
+  for(const [key,values] of Object.entries(source.metrics)) {
+    const cumulative=key==='precipitation_cumulative';
+    const input=cumulative?source.metrics.precipitation_sum:values;
+    const combined=input.actual.map((v,i)=>v??input.forecast[i]);
+    aligned=ClimateCalendar.align(source.dates,combined,year,source.minimum_years,cumulative,payload.comparison_years);
+    const actual=[],forecast=[];
+    aligned.solar[year].forEach((d,i)=>{
+      actual.push(d&&d<source.reference?aligned.years[year][i]:null);
+      forecast.push(d&&d>=source.reference?aligned.years[year][i]:null);
+    });
+    metrics[key]={minimum:aligned.minimum,maximum:aligned.maximum,years:aligned.counts,history:aligned.years,actual,forecast};
+  }
+  const view={...payload,year,dates:aligned.keys,solar:aligned.solar,metrics};
+  lunarWeather.set(payload,view);return view;
+}
 
 function stationSort(a, b) {
   return latitude(b) - latitude(a)
@@ -213,7 +237,7 @@ async function exportAnnualImages() {
       button.textContent = `正在绘制网页年度图 ${index + 1}/${tasks.length} · 已跳过 ${failures.length}`;
     }
     if (!entries.length) throw new Error("所有地点图均导出失败");
-    button.textContent = "正在生成压缩包…"; const link = document.createElement("a"); link.href = URL.createObjectURL(storeZip(entries)); link.download = `橡胶天气_年度图_${new Date().toISOString().slice(0, 10)}.zip`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 30000);
+    button.textContent = "正在生成压缩包…"; const link = document.createElement("a"); link.href = URL.createObjectURL(storeZip(entries)); link.download = `橡胶天气_年度图_${calendarMode==='lunar'?'农历':'公历'}_${new Date().toISOString().slice(0, 10)}.zip`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 30000);
     alert(failures.length ? `导出完成：已跳过 ${failures.length} 张图片。\\n${failures.join("\\n")}` : `导出完成：共 ${entries.length} 张图片。`);
   } catch (error) { console.error(error); alert(`图片导出失败：${error.message || "请稍后重试"}`); }
   finally { host.remove(); button.disabled = false; button.textContent = original; }
@@ -232,6 +256,10 @@ function renderControls() {
     '<div class="annual-legend"><span class="legend-band">历史最低—最高（P0–P100）</span><span class="legend-actual">本年实况</span><span class="legend-forecast">未来预测</span><div id="year-legend"></div></div>' +
     '<p class="annual-baseline-note">历史区间固定 ' + state.data.annual_baseline.start + '—' + state.data.annual_baseline.end + ' 年，不随年份勾选变化；同期不足 ' + state.data.annual_baseline.minimum_years + ' 年不绘制阴影。按月日对齐，本年非闰年不绘制历史 2 月 29 日；本年闰年时，非闰年的 2 月 29 日留空。累计先逐年计算，缺日断线。点击/悬停同步查值。</p>';
   byId("regionType").value = state.regionType;
+  byId('annual-controls').prepend(ClimateCalendar.control(calendarMode,value=>{
+    calendarMode=value;state.dateIndex=null;renderControls();renderLocations();
+  }));
+  if(calendarMode==='lunar')byId('annual-controls').querySelector('.annual-baseline-note').textContent='农历年从正月初一到除夕；同月同日对齐，闰月独立，无对应日期留空。历史范围按农历同期重算，仍要求足够有效年；年内累计降雨从正月初一累计。年份表示农历年。';
   byId("annual-controls").querySelectorAll('[data-production]').forEach(button => button.onclick = () => {
     state.productionFilter = button.dataset.production; state.regionType = 'all'; state.onlySelected = false; state.selected.clear();
     const url = new URL(location.href); url.searchParams.set('production',state.productionFilter); history.replaceState(null,'',url);
@@ -436,7 +464,7 @@ function bandPaths(low, high, x, y) {
 }
 function drawCard(card) {
   if (!card.isConnected || card.dataset.drawn === "1") return;
-  const payload = state.annual.get(card.dataset.station);
+  const payload = annualView(state.annual.get(card.dataset.station));
   if (!payload) return;
   if (payload.error) { card.querySelector(".plot-area").innerHTML = '<p class="chart-empty">年度数据读取失败，请刷新重试。</p>'; return; }
   const series = payload.metrics[card.dataset.metric];
@@ -456,7 +484,8 @@ function drawCard(card) {
     const v = low + (high-low)*i/4, yy = y(v);
     body += '<line x1="54" x2="644" y1="' + yy + '" y2="' + yy + '" class="chart-grid"/><text x="47" y="' + (yy+4) + '" text-anchor="end" class="chart-label">' + v.toFixed(card.dataset.metric.startsWith("soil") ? 2 : 0) + '</text>';
   }
-  payload.dates.forEach((d, i) => { if (d.endsWith("-01")) body += '<text x="' + x(i) + '" y="237" class="chart-label">' + Number(d.slice(5,7)) + '月</text>'; });
+  payload.dates.forEach((d, i) => { if (d.endsWith("-01")) body += '<text x="' + x(i) + '" y="237" class="chart-label" style="font-size:'+(calendarMode==='lunar'?8:11)+'px">' + (calendarMode==='lunar'?ClimateCalendar.monthName(d):Number(d.slice(5,7))+'月') + '</text>'; });
+  body += '<text x="54" y="18" class="chart-label">'+(calendarMode==='lunar'?'农历同月同日 · '+payload.year+'农历年':'公历同月同日')+'</text>';
   selectedYears().forEach(year => {
     const style = yearStyle(year);
     body += '<path class="comparison-year" data-year="' + year + '" d="' + pathSegments(series.history[String(year)] || [],x,y) + '" fill="none" stroke="' + style.color + '" stroke-width="1.4" stroke-dasharray="' + style.dash + '"/>';
@@ -482,7 +511,7 @@ function syncDate(index) {
   document.querySelectorAll('.annual-metric[data-drawn="1"]').forEach(card => updateReadout(card, index));
 }
 function updateReadout(card, index) {
-    const data = state.annual.get(card.dataset.station), values = data?.metrics[card.dataset.metric];
+    const data = annualView(state.annual.get(card.dataset.station)), values = data?.metrics[card.dataset.metric];
     if (!values) return;
     const cursor = card.querySelector(".sync-cursor");
     if (cursor) {
@@ -492,8 +521,8 @@ function updateReadout(card, index) {
     const digits = card.dataset.metric.startsWith("soil") ? 3 : 1;
     const unit = state.data.metric_definitions.find(m => m.key === card.dataset.metric)?.unit || "";
     const actual = finite(values.actual[index]) ? fmt(values.actual[index], digits) : "—（实际待补/未到期）";
-    card.querySelector(".chart-readout").innerHTML = '<div><strong>' + data.dates[index].slice(5) + '</strong> · ' + esc(unit) + '　实况 ' + actual + ' · 预测 ' + fmt(values.forecast[index],digits) + '</div><div>历史最低—最高 ' + fmt(values.minimum[index],digits) + '–' + fmt(values.maximum[index],digits) + '（' + values.years[index] + ' 个有效年）</div><div class="year-values">' +
-      selectedYears().map(year => '<span>' + yearSwatch(year) + year + ' ' + fmt(values.history[String(year)]?.[index],digits) + '</span>').join("") + '</div>';
+    card.querySelector(".chart-readout").innerHTML = '<div><strong>' + (calendarMode==='lunar'?ClimateCalendar.label(data.dates[index])+'（'+(data.solar[data.year]?.[index]||'本年无此日')+'）':data.dates[index].slice(5)) + '</strong> · ' + esc(unit) + '　实况 ' + actual + ' · 预测 ' + fmt(values.forecast[index],digits) + '</div><div>历史最低—最高 ' + fmt(values.minimum[index],digits) + '–' + fmt(values.maximum[index],digits) + '（' + values.years[index] + ' 个有效年）</div><div class="year-values">' +
+      selectedYears().map(year => '<span>' + yearSwatch(year) + year + (calendarMode==='lunar'?'（'+(data.solar[year]?.[index]||'无此日')+'）':'') + ' ' + fmt(values.history[String(year)]?.[index],digits) + '</span>').join("") + '</div>';
 }
 async function loadAnnual() {
   const queue = [...(state.data.stations || [])];
