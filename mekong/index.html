@@ -58,12 +58,20 @@ const ClimateCalendar = (() => {
     l.keys.forEach((_,i)=>{const vs=historical.map(y=>out[y][i]).filter(v=>v!==null&&Number.isFinite(v));counts.push(vs.length);minimum.push(vs.length>=minimumYears?Math.min(...vs):null);maximum.push(vs.length>=minimumYears?Math.max(...vs):null);});
     return {keys:l.keys,years:out,solar:l.solar,minimum,maximum,counts,history_years:historical};
   }
+  function compact(aligned,year) {
+    // Use the actual reference lunar year, not a union of historical leap months.
+    // Filter every parallel array together so hover, envelope and exports agree.
+    const indices=aligned.keys.map((_,i)=>i).filter(i=>aligned.solar[year]?.[i]);
+    const pick=values=>indices.map(i=>values[i]);
+    const pickYears=values=>Object.fromEntries(Object.entries(values).map(([y,vs])=>[y,pick(vs)]));
+    return {...aligned,keys:pick(aligned.keys),years:pickYears(aligned.years),solar:pickYears(aligned.solar),minimum:pick(aligned.minimum),maximum:pick(aligned.maximum),counts:pick(aligned.counts)};
+  }
   const monthName=k=>(k.includes('L')?'闰':'')+['正','二','三','四','五','六','七','八','九','十','冬','腊'][parseInt(k)-1]+'月';
   const label=k=>monthName(k)+Number(k.slice(-2))+'日';
   function mode(){try{return localStorage.getItem('rubber-weather-calendar')==='lunar'?'lunar':'solar';}catch(_){return 'solar';}}
   function save(value){try{localStorage.setItem('rubber-weather-calendar',value);}catch(_){}}
   function control(value,onChange){const label=document.createElement('label');label.textContent='日期历法 ';const select=document.createElement('select');select.id='calendar-mode';select.setAttribute('aria-label','日期历法');select.innerHTML='<option value="solar">公历</option><option value="lunar">农历</option>';select.value=value;select.onchange=()=>{save(select.value);onChange(select.value);};label.append(select);return label;}
-  return {parts,align,monthName,label,mode,save,control};
+  return {parts,align,compact,monthName,label,mode,save,control};
 })();
 if(typeof module!=='undefined')module.exports=ClimateCalendar;
 
@@ -87,7 +95,7 @@ if(typeof module!=='undefined')module.exports=ClimateCalendar;
     const source=chart.calendar_source;
     if(!source)throw new Error('请重新生成水位农历数据');
     const current=source.dates.length?ClimateCalendar.parts(source.dates.at(-1)).year:new Date().getFullYear();
-    const a=ClimateCalendar.align(source.dates,source.values,current);
+    const a=ClimateCalendar.compact(ClimateCalendar.align(source.dates,source.values,current),current);
     const years=Object.fromEntries(Object.entries(a.years).filter(([y,vs])=>vs.some(v=>v!==null)));
     const result={...chart,month_days:a.keys,years,solar:a.solar,history_min:a.minimum,history_max:a.maximum,history_years:a.history_years,default_years:Object.keys(years).map(Number).filter(y=>y>=current-4)};
     lunarCache.set(chart,result);return result;
@@ -225,7 +233,7 @@ if(typeof module!=='undefined')module.exports=ClimateCalendar;
       });
       hit.addEventListener('pointerleave',() => cursor.setAttribute('visibility','hidden'));
       plot.replaceChildren(svg);
-      readout.textContent=active.length?'已显示 '+active.join('、')+(calendarMode==='lunar'?' 农历年（正月初一至除夕，闰月独立）；':' 年；')+'移动指针查看同月日水位。':years.length?'未选择年份，请勾选年份或点击“近5年”。':'暂无可用观测，本站状态和历史下载情况见上方说明。';
+      readout.textContent=active.length?'已显示 '+active.join('、')+(calendarMode==='lunar'?' 农历年（横轴仅保留本农历年存在的日期，真实缺测仍断线）；':' 年；')+'移动指针查看同月日水位。':years.length?'未选择年份，请勾选年份或点击“近5年”。':'暂无可用观测，本站状态和历史下载情况见上方说明。';
     }
     state.renders.push(render);
     section.querySelector('[data-export="'+metric+'"]').addEventListener('click',() => {

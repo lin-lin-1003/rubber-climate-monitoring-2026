@@ -19,7 +19,7 @@ function annualView(payload) {
     const cumulative=key==='precipitation_cumulative';
     const input=cumulative?source.metrics.precipitation_sum:values;
     const combined=input.actual.map((v,i)=>v??input.forecast[i]);
-    aligned=ClimateCalendar.align(source.dates,combined,year,source.minimum_years,cumulative,payload.comparison_years);
+    aligned=ClimateCalendar.compact(ClimateCalendar.align(source.dates,combined,year,source.minimum_years,cumulative,payload.comparison_years),year);
     const actual=[],forecast=[];
     aligned.solar[year].forEach((d,i)=>{
       actual.push(d&&d<source.reference?aligned.years[year][i]:null);
@@ -259,7 +259,7 @@ function renderControls() {
   byId('annual-controls').prepend(ClimateCalendar.control(calendarMode,value=>{
     calendarMode=value;state.dateIndex=null;renderControls();renderLocations();
   }));
-  if(calendarMode==='lunar')byId('annual-controls').querySelector('.annual-baseline-note').textContent='农历年从正月初一到除夕；同月同日对齐，闰月独立，无对应日期留空。历史范围按农历同期重算，仍要求足够有效年；年内累计降雨从正月初一累计。年份表示农历年。';
+  if(calendarMode==='lunar')byId('annual-controls').querySelector('.annual-baseline-note').textContent='农历年从正月初一到除夕；横轴只保留本农历年实际存在的日期，不为本年没有的闰月或日期预留空白。各年按农历同月同日比较，真实缺测仍断线。历史范围按农历同期重算，仍要求足够有效年；年内累计降雨从正月初一累计。年份表示农历年。';
   byId("annual-controls").querySelectorAll('[data-production]').forEach(button => button.onclick = () => {
     state.productionFilter = button.dataset.production; state.regionType = 'all'; state.onlySelected = false; state.selected.clear();
     const url = new URL(location.href); url.searchParams.set('production',state.productionFilter); history.replaceState(null,'',url);

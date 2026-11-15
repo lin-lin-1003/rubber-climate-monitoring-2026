@@ -49,12 +49,20 @@ const ClimateCalendar = (() => {
     l.keys.forEach((_,i)=>{const vs=historical.map(y=>out[y][i]).filter(v=>v!==null&&Number.isFinite(v));counts.push(vs.length);minimum.push(vs.length>=minimumYears?Math.min(...vs):null);maximum.push(vs.length>=minimumYears?Math.max(...vs):null);});
     return {keys:l.keys,years:out,solar:l.solar,minimum,maximum,counts,history_years:historical};
   }
+  function compact(aligned,year) {
+    // Use the actual reference lunar year, not a union of historical leap months.
+    // Filter every parallel array together so hover, envelope and exports agree.
+    const indices=aligned.keys.map((_,i)=>i).filter(i=>aligned.solar[year]?.[i]);
+    const pick=values=>indices.map(i=>values[i]);
+    const pickYears=values=>Object.fromEntries(Object.entries(values).map(([y,vs])=>[y,pick(vs)]));
+    return {...aligned,keys:pick(aligned.keys),years:pickYears(aligned.years),solar:pickYears(aligned.solar),minimum:pick(aligned.minimum),maximum:pick(aligned.maximum),counts:pick(aligned.counts)};
+  }
   const monthName=k=>(k.includes('L')?'闰':'')+['正','二','三','四','五','六','七','八','九','十','冬','腊'][parseInt(k)-1]+'月';
   const label=k=>monthName(k)+Number(k.slice(-2))+'日';
   function mode(){try{return localStorage.getItem('rubber-weather-calendar')==='lunar'?'lunar':'solar';}catch(_){return 'solar';}}
   function save(value){try{localStorage.setItem('rubber-weather-calendar',value);}catch(_){}}
   function control(value,onChange){const label=document.createElement('label');label.textContent='日期历法 ';const select=document.createElement('select');select.id='calendar-mode';select.setAttribute('aria-label','日期历法');select.innerHTML='<option value="solar">公历</option><option value="lunar">农历</option>';select.value=value;select.onchange=()=>{save(select.value);onChange(select.value);};label.append(select);return label;}
-  return {parts,align,monthName,label,mode,save,control};
+  return {parts,align,compact,monthName,label,mode,save,control};
 })();
 if(typeof module!=='undefined')module.exports=ClimateCalendar;
 
@@ -79,7 +87,7 @@ function annualView(payload) {
     const cumulative=key==='precipitation_cumulative';
     const input=cumulative?source.metrics.precipitation_sum:values;
     const combined=input.actual.map((v,i)=>v??input.forecast[i]);
-    aligned=ClimateCalendar.align(source.dates,combined,year,source.minimum_years,cumulative,payload.comparison_years);
+    aligned=ClimateCalendar.compact(ClimateCalendar.align(source.dates,combined,year,source.minimum_years,cumulative,payload.comparison_years),year);
     const actual=[],forecast=[];
     aligned.solar[year].forEach((d,i)=>{
       actual.push(d&&d<source.reference?aligned.years[year][i]:null);
@@ -319,7 +327,7 @@ function renderControls() {
   byId('annual-controls').prepend(ClimateCalendar.control(calendarMode,value=>{
     calendarMode=value;state.dateIndex=null;renderControls();renderLocations();
   }));
-  if(calendarMode==='lunar')byId('annual-controls').querySelector('.annual-baseline-note').textContent='农历年从正月初一到除夕；同月同日对齐，闰月独立，无对应日期留空。历史范围按农历同期重算，仍要求足够有效年；年内累计降雨从正月初一累计。年份表示农历年。';
+  if(calendarMode==='lunar')byId('annual-controls').querySelector('.annual-baseline-note').textContent='农历年从正月初一到除夕；横轴只保留本农历年实际存在的日期，不为本年没有的闰月或日期预留空白。各年按农历同月同日比较，真实缺测仍断线。历史范围按农历同期重算，仍要求足够有效年；年内累计降雨从正月初一累计。年份表示农历年。';
   byId("annual-controls").querySelectorAll('[data-production]').forEach(button => button.onclick = () => {
     state.productionFilter = button.dataset.production; state.regionType = 'all'; state.onlySelected = false; state.selected.clear();
     const url = new URL(location.href); url.searchParams.set('production',state.productionFilter); history.replaceState(null,'',url);
