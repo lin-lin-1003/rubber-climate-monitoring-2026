@@ -18,14 +18,17 @@ function annualView(payload) {
   for(const [key,values] of Object.entries(source.metrics)) {
     const cumulative=key==='precipitation_cumulative';
     const input=cumulative?source.metrics.precipitation_sum:values;
-    const combined=input.actual.map((v,i)=>v??input.forecast[i]);
+    const combined=input.actual.map((v,i)=>v??input.estimated?.[i]??input.forecast[i]);
     aligned=ClimateCalendar.compact(ClimateCalendar.align(source.dates,combined,year,source.minimum_years,cumulative,payload.comparison_years),year);
-    const actual=[],forecast=[];
+    const actual=[],forecast=[],estimated=[];
+    const sourceIndex=new Map(source.dates.map((d,i)=>[d,i]));
     aligned.solar[year].forEach((d,i)=>{
-      actual.push(d&&d<source.reference?aligned.years[year][i]:null);
+      const provisional=finite(input.estimated?.[sourceIndex.get(d)]);
+      actual.push(d&&d<source.reference&&!provisional?aligned.years[year][i]:null);
+      estimated.push(d&&d<source.reference&&provisional?aligned.years[year][i]:null);
       forecast.push(d&&d>=source.reference?aligned.years[year][i]:null);
     });
-    metrics[key]={minimum:aligned.minimum,maximum:aligned.maximum,years:aligned.counts,history:aligned.years,actual,forecast};
+    metrics[key]={minimum:aligned.minimum,maximum:aligned.maximum,years:aligned.counts,history:aligned.years,actual,estimated,forecast};
   }
   const view={...payload,year,dates:aligned.keys,solar:aligned.solar,metrics};
   lunarWeather.set(payload,view);return view;
@@ -253,13 +256,14 @@ function renderControls() {
     '<details class="region-picker"><summary>选择异常地区 <span id="selected-count"></span></summary><div class="region-options">' +
     allRegions().filter(r => r.has_anomaly || r.has_missing).map(r => '<label><input type="checkbox" data-region="' + esc(r.region_key) + '"' + (state.selected.has(r.region_key) ? ' checked' : '') + '><span>' + esc(r.country + " · " + r.production_region + '（' + r.station_names.join('、') + '）') + '<small>' + esc(r.status) + ' · 影响分 ' + fmt(r.impact_score, 2) + (r.has_missing ? ' · 含数据不足项' : '') + '</small></span></label>').join("") +
     '</div></details><label><input id="onlySelected" type="checkbox"' + (state.onlySelected ? ' checked' : '') + '>仅看已选</label><button type="button" id="resetAnnual">恢复全部</button><span id="visibleCount"></span></div>' +
-    '<div class="annual-legend"><span class="legend-band">历史最低—最高（P0–P100）</span><span class="legend-actual">本年实况</span><span class="legend-forecast">未来预测</span><div id="year-legend"></div></div>' +
-    '<p class="annual-baseline-note">历史区间固定 ' + state.data.annual_baseline.start + '—' + state.data.annual_baseline.end + ' 年，不随年份勾选变化；同期不足 ' + state.data.annual_baseline.minimum_years + ' 年不绘制阴影。按月日对齐，本年非闰年不绘制历史 2 月 29 日；本年闰年时，非闰年的 2 月 29 日留空。累计先逐年计算，缺日断线。点击/悬停同步查值。</p>';
+    '<div class="annual-legend"><span class="legend-band">历史最低—最高（P0–P100）</span><span class="legend-actual">本年实况</span><span style="color:#7c3aed">紫色虚线：IFS近期模型估计</span><span class="legend-forecast">未来预测</span><div id="year-legend"></div></div>' +
+    '<p class="annual-baseline-note">气温和土壤湿度未发布的近期日期使用 ECMWF IFS 模型估计，ERA5-Land 发布后自动替换；模型间可能有偏差，正式评分仍用原有实况。历史区间固定 ' + state.data.annual_baseline.start + '—' + state.data.annual_baseline.end + ' 年，不随年份勾选变化；同期不足 ' + state.data.annual_baseline.minimum_years + ' 年不绘制阴影。按月日对齐，本年非闰年不绘制历史 2 月 29 日；本年闰年时，非闰年的 2 月 29 日留空。累计先逐年计算，缺日断线。点击/悬停同步查值。</p>';
   byId("regionType").value = state.regionType;
   byId('annual-controls').prepend(ClimateCalendar.control(calendarMode,value=>{
     calendarMode=value;state.dateIndex=null;renderControls();renderLocations();
   }));
   if(calendarMode==='lunar')byId('annual-controls').querySelector('.annual-baseline-note').textContent='农历年从正月初一到除夕；横轴只保留本农历年实际存在的日期，不为本年没有的闰月或日期预留空白。各年按农历同月同日比较，真实缺测仍断线。历史范围按农历同期重算，仍要求足够有效年；年内累计降雨从正月初一累计。年份表示农历年。';
+  if(calendarMode==='lunar')byId('annual-controls').querySelector('.annual-baseline-note').textContent+=' 气温、土壤湿度紫色虚线为IFS近期模型估计，ERA5-Land发布后自动替换；正式评分仍用原有实况。';
   byId("annual-controls").querySelectorAll('[data-production]').forEach(button => button.onclick = () => {
     state.productionFilter = button.dataset.production; state.regionType = 'all'; state.onlySelected = false; state.selected.clear();
     const url = new URL(location.href); url.searchParams.set('production',state.productionFilter); history.replaceState(null,'',url);
@@ -471,7 +475,7 @@ function drawCard(card) {
   if (!series) return;
   card.dataset.drawn = "1";
   // Include every baseline year in the scale so checking years cannot move axes.
-  const observed = [...series.minimum, ...series.maximum, ...series.actual, ...series.forecast, ...Object.values(series.history).flat()].filter(finite);
+  const observed = [...series.minimum, ...series.maximum, ...series.actual, ...(series.estimated || []), ...series.forecast, ...Object.values(series.history).flat()].filter(finite);
   if (!observed.length) { card.querySelector(".plot-area").innerHTML = '<p class="chart-empty">没有可用数据</p>'; return; }
   let low = Math.min(...observed), high = Math.max(...observed);
   const pad = Math.max((high-low)*.09, card.dataset.metric.startsWith("soil") ? .01 : .5);
@@ -489,6 +493,10 @@ function drawCard(card) {
   selectedYears().forEach(year => {
     const style = yearStyle(year);
     body += '<path class="comparison-year" data-year="' + year + '" d="' + pathSegments(series.history[String(year)] || [],x,y) + '" fill="none" stroke="' + style.color + '" stroke-width="1.4" stroke-dasharray="' + style.dash + '"/>';
+  });
+  body += '<path class="estimated-line" d="' + pathSegments(series.estimated || [],x,y) + '" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="7 3"/>';
+  (series.estimated || []).forEach((value,i) => {
+    if(finite(value)) body += '<circle class="estimated-point" cx="' + x(i) + '" cy="' + y(value) + '" r="2.5" fill="#7c3aed"/>';
   });
   body += '<path class="actual-line" d="' + pathSegments(series.actual,x,y) + '" fill="none" stroke="#d92d20" stroke-width="3.5"/>' +
     '<path d="' + pathSegments(series.forecast,x,y) + '" fill="none" stroke="#c66628" stroke-width="2" stroke-dasharray="5 3"/>' +
@@ -520,8 +528,10 @@ function updateReadout(card, index) {
     }
     const digits = card.dataset.metric.startsWith("soil") ? 3 : 1;
     const unit = state.data.metric_definitions.find(m => m.key === card.dataset.metric)?.unit || "";
+    const overlap = data.ifs_overlap?.[card.dataset.metric];
+    const overlapNote = overlap ? ' · IFS与ERA5-Land近30日重叠' + overlap.days + '天，平均偏差 ' + fmt(overlap.mean_bias,digits) + '，平均绝对差 ' + fmt(overlap.mae,digits) : '';
     const actual = finite(values.actual[index]) ? fmt(values.actual[index], digits) : "—（实际待补/未到期）";
-    card.querySelector(".chart-readout").innerHTML = '<div><strong>' + (calendarMode==='lunar'?ClimateCalendar.label(data.dates[index])+'（'+(data.solar[data.year]?.[index]||'本年无此日')+'）':data.dates[index].slice(5)) + '</strong> · ' + esc(unit) + '　实况 ' + actual + ' · 预测 ' + fmt(values.forecast[index],digits) + '</div><div>历史最低—最高 ' + fmt(values.minimum[index],digits) + '–' + fmt(values.maximum[index],digits) + '（' + values.years[index] + ' 个有效年）</div><div class="year-values">' +
+    card.querySelector(".chart-readout").innerHTML = '<div><strong>' + (calendarMode==='lunar'?ClimateCalendar.label(data.dates[index])+'（'+(data.solar[data.year]?.[index]||'本年无此日')+'）':data.dates[index].slice(5)) + '</strong> · ' + esc(unit) + '　实况 ' + actual + ' · IFS近期模型估计 ' + fmt(values.estimated?.[index],digits) + esc(overlapNote) + ' · 预测 ' + fmt(values.forecast[index],digits) + '</div><div>历史最低—最高 ' + fmt(values.minimum[index],digits) + '–' + fmt(values.maximum[index],digits) + '（' + values.years[index] + ' 个有效年）</div><div class="year-values">' +
       selectedYears().map(year => '<span>' + yearSwatch(year) + year + (calendarMode==='lunar'?'（'+(data.solar[year]?.[index]||'无此日')+'）':'') + ' ' + fmt(values.history[String(year)]?.[index],digits) + '</span>').join("") + '</div>';
 }
 async function loadAnnual() {
